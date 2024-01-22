@@ -4,32 +4,12 @@ var exported = {},
     automaticStateManager = require('./helpers/automaticStateManager'),
     { validateRead } = require('../../../api/utils/rights.js');
 
-//----------------------------------------------------------HERE---------------------------------------------------------
 const { Kafka, logLevel } = require("kafkajs")
 const countlyConfig = require('../../../api/config', 'dont-enclose');
 const clientId = "my-app"
 const brokers = countlyConfig.kafka ? countlyConfig.kafka : ["10.32.37.205:9092"]
 const kafka = new Kafka({ clientId, brokers, logLevel: logLevel.DEBUG })
 const producer = kafka.producer({})
-// we define an async function that writes a new message each second
-const produce = async (topic, data) => {
-        await producer.connect()
-        try {
-                await producer.send({
-                        topic,
-                        acks: 1,
-                        messages: [
-                                {
-                                        value: JSON.stringify(data)
-                                },
-                        ],
-                })
-
-        } catch (err) {
-                console.error("could not write message " + err)
-        }
-}
-//----------------------------------------------------------HERE---------------------------------------------------------
 
 const FEATURE_NAME = 'logger';
 
@@ -73,13 +53,9 @@ plugins.setConfigs("logger", {
     };
 
     var processSDKRequest = function(params) {
-//----------------------------------------------------------HERE---------------------------------------------------------
-        //const requestLoggerConfiguration = getRequestLoggerConfiguration(params);
-        //if (params.logging_is_allowed && shouldLogRequest(requestLoggerConfiguration)) {
-//----------------------------------------------------------HERE---------------------------------------------------------
         if (params.logging_is_allowed) {
-
             params.log_processed = true;
+
             var now = new Date().getTime();
             var ts = common.initTimeObj(null, params.qstring.timestamp || now).mstimestamp;
             var device = {};
@@ -121,7 +97,6 @@ plugins.setConfigs("logger", {
                 types.change_id.device_id = params.qstring.device_id;
             }
             if (params.old_device_id) {
-                //Set for logging by the FETCH API
                 if (!types.change_id) {
                     types.change_id = {};
                 }
@@ -284,29 +259,23 @@ plugins.setConfigs("logger", {
             };
 
             plugins.dispatch("/log", { params: params, insertData: insertData, problems: problems }, function() {
-                //Set problems after log event dispatched
+                // Set problems after log event dispatched
                 insertData.p = (problems.length) ? problems : false;
 
-                setTimeout(function() {
-                    common.db.collection('logs' + params.app_id).insert(insertData, function() {});
-                }, 1000);
-//----------------------------------------------------------HERE---------------------------------------------------------
-		    // var topic = String(params.app_id)
-            //     produce(topic, insertData).catch((err) => {
-            //         console.error("error in producer: ", err)
-            //         problems.push("error in producer ==");
-            //    })
+                // Gửi log đến Kafka
+                var topic = String(params.app_id);
+                produce(topic, insertData).catch((err) => {
+                    console.error("error in producer: ", err);
+                    problems.push("error in producer ==");
+                });
 
-
-            if(insertData.t.events != undefined)
-            {
-                ts = insertData.ts
-                reqts = insertData.reqts
-                did = insertData.d.id
-                var eventsArray = JSON.parse(insertData.t.events)
-                eventsArray.forEach(element =>
-                    {
-                        var topic = element.key
+                if (insertData.t.events != undefined) {
+                    ts = insertData.ts;
+                    reqts = insertData.reqts;
+                    did = insertData.d.id;
+                    var eventsArray = JSON.parse(insertData.t.events);
+                    eventsArray.forEach(element => {
+                        var topic = element.key;
 
                         element.ts = ts;
                         element.reqts = reqts;
@@ -314,38 +283,31 @@ plugins.setConfigs("logger", {
                         element.headers = insertData.h;
                         element.app_id = params.app_id;
                         element.app_key = params.qstring.app_key;
-                        
-                        produce(topic, element).catch((err) => {
-                            console.error("error in producer: ", err)
-                            problems.push("error in producer ==");
-                        })
-                    })
-            }
 
-        
-//----------------------------------------------------------HERE---------------------------------------------------------
+                        // Gửi từng sự kiện trong eventsArray đến Kafka
+                        produce(topic, element).catch((err) => {
+                            console.error("error in producer: ", err);
+                            problems.push("error in producer ==");
+                        });
+                    });
+                }
             });
-        }
-        else {
-//----------------------------------------------------------HERE---------------------------------------------------------
-            //turnRequestLoggerOffIfNecessary(params, requestLoggerConfiguration);
-//----------------------------------------------------------HERE---------------------------------------------------------
         }
     };
 
-    //write api call
+    // Write api call
     plugins.register("/sdk/log", function(ob) {
         ob.params.logging_is_allowed = !ob.params.retry_request && !ob.params.log_processed;
         processSDKRequest(ob.params);
     });
 
-    //logging fetch api call
+    // Logging fetch api call
     plugins.register("/o/sdk/log", function(ob) {
         ob.params.logging_is_allowed = !ob.params.log_processed;
         processSDKRequest(ob.params);
     });
 
-    //write api call
+    // Write api call
     plugins.register("/sdk/cancel", function(ob) {
         ob.params.logging_is_allowed = !ob.params.retry_request && !ob.params.log_processed;
         var params = ob.params;
@@ -367,7 +329,7 @@ plugins.setConfigs("logger", {
         }
     });
 
-    //read api call
+    // Read api call
     plugins.register("/o", function(ob) {
         var params = ob.params;
 
@@ -382,70 +344,27 @@ plugins.setConfigs("logger", {
                 }
             }
 
-//----------------------------------------------------------HERE---------------------------------------------------------
-           // validateRead(params, FEATURE_NAME, function(parameters) {
-            //    common.db.collection('logs' + parameters.app_id).find(filter).limit(1000).toArray(function(err, items) {
-            //        if (err) {
-            //            console.log(err);
-            //        }
-            //        common.returnOutput(parameters, {logs: items || [], state: getRequestLoggerConfiguration(params).state});
-            //    });
-            //});
-            //return true;
-
-
-            validate(params, function(parameters) {
-                common.db.collection('logs' + parameters.app_id).find(filter).toArray(function(err, items) {
-                    if (err) {
-                        console.log(err);
-                    }
-                    common.returnOutput(parameters, items || []);
-                });
-            });
-            return true;
-//----------------------------------------------------------HERE---------------------------------------------------------
-
-
-        }
-        if (params.qstring.method === 'collection_info') {
             validateRead(params, FEATURE_NAME, function(parameters) {
-                common.db.collection('logs' + parameters.app_id).stats(function(err, stats) {
-                    if (err) {
-                        console.log(err);
-                    }
-                    common.returnOutput(parameters, stats && {capped: stats.capped, max: stats.max} || {});
-                });
+                common.returnOutput(parameters, {logs: [], state: getRequestLoggerConfiguration(params).state});
             });
             return true;
         }
     });
 
     plugins.register("/i/apps/create", function(ob) {
-        var appId = ob.appId;
-        common.db.command({"convertToCapped": 'logs' + appId, size: 20000000, max: 10000}, function(err) {
-            if (err) {
-                common.db.createCollection('logs' + appId, {capped: true, size: 20000000, max: 10000}, function() {});
-            }
-        });
+        // Do nothing related to MongoDB
     });
 
     plugins.register("/i/apps/delete", function(ob) {
-        var appId = ob.appId;
-        common.db.collection('logs' + appId).drop(function() {});
+        // Do nothing related to MongoDB
     });
 
     plugins.register("/i/apps/reset", function(ob) {
-        var appId = ob.appId;
-        common.db.collection('logs' + appId).drop(function() {
-            common.db.createCollection('logs' + appId, {capped: true, size: 20000000, max: 10000}, function() {});
-        });
+        // Do nothing related to MongoDB
     });
 
     plugins.register("/i/apps/clear_all", function(ob) {
-        var appId = ob.appId;
-        common.db.collection('logs' + appId).drop(function() {
-            common.db.createCollection('logs' + appId, {capped: true, size: 20000000, max: 10000}, function() {});
-        });
+        // Do nothing related to MongoDB
     });
 }(exported));
 
