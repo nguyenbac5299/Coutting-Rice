@@ -1,0 +1,69 @@
+1. 
+class UploadEvent:
+    def __init__(self, topic, event):
+        self.max_record = int(config.MAX_RECORD)
+        self.topic = topic
+        self.event = event
+        self.offset_last_path = "logs/" + '{}'.format(self.topic) + "/offsetlast.txt"
+        self.log_folder = ''
+    def upload_topic(self):
+        # get offset last message
+        print("===Upload Topic: ",datetime.now(), self.topic)
+        offsetlastget = self.read_offsetlast(self.offset_last_path)
+        if offsetlastget == None:
+            offsetlastget = 0
+
+        consumer = KafkaConsumer(bootstrap_servers=config.KAFKA_SERVER, auto_offset_reset='earliest')
+        partition = TopicPartition(self.topic, 0)
+        end_offset = consumer.end_offsets([partition])
+        offset_latest=list(end_offset.values())[0] - 1
+        # get last message self.max_record after deploy
+        if offset_latest < self.max_record:
+            offsetlastget = 0
+        else:
+            offsetlastget = offset_latest - self.max_record
+        consumer.assign([partition])
+        consumer.seek(partition, offsetlastget)
+
+        self.log_folder = self.get_create_log_folder()
+        count = 0
+        
+        print("== after process kafka message in consumer==", datetime.now(), self.topic)
+
+        for kafka_message in consumer:
+            t1= time.time()
+            print("consumer proccess message: ", datetime.now(), self.topic,  kafka_message.value.decode())
+
+            if self.event.is_set():
+                break
+            if not os.path.isdir(self.log_folder):
+                self.log_folder = self.get_create_log_folder()
+            # create file record.txt in log_folder
+            data = kafka_message.value.decode()
+            self.write_data(data, "a", f'{self.log_folder}/records.txt')
+            t2= time.time()
+            print("write_data: ", datetime.now(), self.topic , t2-t1)
+            count += 1
+            if count == self.max_record or kafka_message.offset == offset_latest:
+                # convert folder to .zip and upload Minio
+                self.uploadMinio(self.log_folder)
+                count = 0
+                self.log_folder = self.get_create_log_folder()
+                self.write_data(kafka_message.offset, "w", self.offset_last_path)
+                t3= time.time()
+                print("write_data offset: ", datetime.now(), self.topic, t3-t2)
+            if kafka_message.offset > offset_latest:
+                self.send_campaigmgt(data)
+            time.sleep(0.01)
+
+
+from kafka import KafkaConsumer
+from datetime import datetime
+# To consume latest messages and auto-commit offsets
+consumer = KafkaConsumer('stock_click',bootstrap_servers=['10.32.37.205:9092'])
+for message in consumer:
+    print("consumer proccess message: ", datetime.now(), message.value.decode())
+
+
+
+
