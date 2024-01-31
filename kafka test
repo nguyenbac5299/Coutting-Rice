@@ -1,16 +1,30 @@
-from kafka import KafkaConsumer
+from kafka import KafkaConsumer, TopicPartition
 from datetime import datetime
 import os
 import time
 import config  # assuming config module is defined
-from threading import Thread
+
+class CampaignConsumer:
+    def __init__(self, topic):
+        self.topic = topic
+        self.consumer = KafkaConsumer(self.topic, group_id='campaign_group', bootstrap_servers=config.KAFKA_SERVER, auto_offset_reset='earliest', enable_auto_commit=True)
+        # Other initialization for the campaign consumer
+
+    def send_campaign(self, data):
+        # Implement your logic to send campaign
+        print("Sending campaign:", data)
+
+    def process_messages(self):
+        for kafka_message in self.consumer:
+            data = kafka_message.value.decode()
+            self.send_campaign(data)
 
 class DataWriterConsumer:
     def __init__(self, topic, max_record, offset_last_path):
         self.topic = topic
         self.max_record = max_record
         self.offset_last_path = offset_last_path
-        self.consumer = KafkaConsumer(self.topic, group_id='data_writer_group', bootstrap_servers=config.KAFKA_SERVER, auto_offset_reset='earliest', enable_auto_commit=True)  # Enable auto commit
+        self.consumer = KafkaConsumer(self.topic, group_id='data_writer_group', bootstrap_servers=config.KAFKA_SERVER, auto_offset_reset='earliest', enable_auto_commit=True)
         self.log_folder = None
         self.event = None  # assuming the event variable is defined
 
@@ -62,6 +76,7 @@ class DataWriterConsumer:
                 self.upload_minio(self.log_folder)
                 count = 0
                 self.log_folder = self.get_create_log_folder()
+                self.write_data(self.consumer.position(kafka_message.partition).offset)
                 t3 = time.time()
                 print("Write_data offset: ", datetime.now(), self.topic, t3 - t2)
 
@@ -69,6 +84,21 @@ class DataWriterConsumer:
                 self.send_campaigmgt(data)
             
             time.sleep(0.01)
+
+# Usage
+campaign_consumer = CampaignConsumer("your_topic")
+data_writer_consumer = DataWriterConsumer("your_topic", 100, "your_offset_last_path")
+
+# Start the consumers in separate threads or processes
+campaign_consumer_thread = Thread(target=campaign_consumer.process_messages)
+data_writer_consumer_thread = Thread(target=data_writer_consumer.process_messages)
+
+campaign_consumer_thread.start()
+data_writer_consumer_thread.start()
+
+campaign_consumer_thread.join()
+data_writer_consumer_thread.join()
+
 
 # Usage
 data_writer_consumer = DataWriterConsumer("your_topic", 100, "your_offset_last_path")
