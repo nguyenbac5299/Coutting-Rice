@@ -1,127 +1,83 @@
-1. 
-class UploadEvent:
-    def __init__(self, topic, event):
-        self.max_record = int(config.MAX_RECORD)
-        self.topic = topic
-        self.event = event
-        self.offset_last_path = "logs/" + '{}'.format(self.topic) + "/offsetlast.txt"
-        self.log_folder = ''
-    def upload_topic(self):
-        # get offset last message
-        print("===Upload Topic: ",datetime.now(), self.topic)
-        offsetlastget = self.read_offsetlast(self.offset_last_path)
-        if offsetlastget == None:
-            offsetlastget = 0
+from kafka import KafkaConsumer
+from datetime import datetime
+import os
+import time
+import config  # assuming config module is defined
+from threading import Thread
 
-        consumer = KafkaConsumer(bootstrap_servers=config.KAFKA_SERVER, auto_offset_reset='earliest')
-        partition = TopicPartition(self.topic, 0)
-        end_offset = consumer.end_offsets([partition])
-        offset_latest=list(end_offset.values())[0] - 1
-        # get last message self.max_record after deploy
-        if offset_latest < self.max_record:
-            offsetlastget = 0
-        else:
-            offsetlastget = offset_latest - self.max_record
-        consumer.assign([partition])
-        consumer.seek(partition, offsetlastget)
+class DataWriterConsumer:
+    def __init__(self, topic, max_record, offset_last_path):
+        self.topic = topic
+        self.max_record = max_record
+        self.offset_last_path = offset_last_path
+        self.consumer = KafkaConsumer(self.topic, group_id='data_writer_group', bootstrap_servers=config.KAFKA_SERVER, auto_offset_reset='earliest', enable_auto_commit=True)  # Enable auto commit
+        self.log_folder = None
+        self.event = None  # assuming the event variable is defined
+
+    def read_offsetlast(self, path):
+        # Implement your logic to read the last offset from the file
+        pass
+
+    def write_data(self, data):
+        # Implement your logic to write data to the file
+        print("Writing data:", data)
+
+    def get_create_log_folder(self):
+        # Implement your logic to get or create the log folder
+        pass
+
+    def upload_minio(self, folder_path):
+        # Implement your logic to upload folder to Minio
+        print("Uploading to Minio:", folder_path)
+
+    def process_messages(self):
+        print("===Upload Topic: ", datetime.now(), self.topic)
+
+        offset_last_get = self.read_offsetlast(self.offset_last_path)
+        if offset_last_get is None:
+            offset_last_get = 0
 
         self.log_folder = self.get_create_log_folder()
         count = 0
-        
+
         print("== after process kafka message in consumer==", datetime.now(), self.topic)
 
-        for kafka_message in consumer:
-            t1= time.time()
-            print("consumer proccess message: ", datetime.now(), self.topic,  kafka_message.value.decode())
+        for kafka_message in self.consumer:
+            t1 = time.time()
+            print("Consumer process message: ", datetime.now(), self.topic, kafka_message.value.decode())
 
             if self.event.is_set():
                 break
+
             if not os.path.isdir(self.log_folder):
                 self.log_folder = self.get_create_log_folder()
-            # create file record.txt in log_folder
+
             data = kafka_message.value.decode()
-            self.write_data(data, "a", f'{self.log_folder}/records.txt')
-            t2= time.time()
-            print("write_data: ", datetime.now(), self.topic , t2-t1)
+            self.write_data(data)
+            t2 = time.time()
+            print("Write_data: ", datetime.now(), self.topic, t2 - t1)
             count += 1
-            if count == self.max_record or kafka_message.offset == offset_latest:
-                # convert folder to .zip and upload Minio
-                self.uploadMinio(self.log_folder)
+
+            if count == self.max_record or kafka_message.offset == self.consumer.position(kafka_message.partition).offset - 1:
+                self.upload_minio(self.log_folder)
                 count = 0
                 self.log_folder = self.get_create_log_folder()
-                self.write_data(kafka_message.offset, "w", self.offset_last_path)
-                t3= time.time()
-                print("write_data offset: ", datetime.now(), self.topic, t3-t2)
-            if kafka_message.offset > offset_latest:
+                t3 = time.time()
+                print("Write_data offset: ", datetime.now(), self.topic, t3 - t2)
+
+            if self.consumer.position(kafka_message.partition).offset > self.consumer.end_offsets([kafka_message.partition])[kafka_message.partition] - 1:
                 self.send_campaigmgt(data)
+            
             time.sleep(0.01)
 
+# Usage
+data_writer_consumer = DataWriterConsumer("your_topic", 100, "your_offset_last_path")
 
-from kafka import KafkaConsumer
-from datetime import datetime
-# To consume latest messages and auto-commit offsets
-consumer = KafkaConsumer('stock_click',bootstrap_servers=[''])
-for message in consumer:
-    print("consumer proccess message: ", datetime.now(), message.value.decode())
+# Start the consumer in a separate thread or process
+data_writer_consumer_thread = Thread(target=data_writer_consumer.process_messages)
+data_writer_consumer_thread.start()
+
+data_writer_consumer_thread.join()
 
 
-
-from confluent_kafka import Consumer, KafkaError, TopicPartition
-from datetime import datetime
-import time
-
-def send_campaign(data):
-    # Thực hiện logic gửi chiến dịch tại đây
-    print("Sending campaign:", datetime.now(), data)
-
-def process_kafka_message(consumer, kafka_message):
-    try:
-        # Xử lý dữ liệu từ message.value
-        data = kafka_message.value().decode('utf-8')
-        print("Processing message:", datetime.now(), data)
-
-        # Gửi chiến dịch
-        send_campaign(data)
-
-        # Cập nhật trạng thái xử lý và offset
-        consumer.commit()
-
-    except Exception as e:
-        print("Error processing message:", datetime.now(), str(e))
-
-def kafka_consumer(topic, partition):
-    conf = {
-        'bootstrap.servers': '',
-        'group.id': 'your_consumer_group_id',
-        'auto.offset.reset': 'earliest'
-    }
-
-    consumer = Consumer(conf)
-    consumer.assign([TopicPartition(topic, partition)])
-
-    try:
-        while True:
-            msg = consumer.poll(1000)
-            if msg is None:
-                continue
-            if msg.error():
-                if msg.error().code() == KafkaError._PARTITION_EOF:
-                    continue
-                else:
-                    print("Error:", datetime.now(), msg.error())
-                    time.sleep(1)
-                    continue
-
-            # Xử lý message
-            process_kafka_message(consumer, msg)
-
-    except KeyboardInterrupt:
-        pass
-    finally:
-        consumer.close()
-
-if __name__ == '__main__':
-    kafka_topic = 'your_kafka_topic'
-    kafka_partition = 0  # Thay thế bằng partition bạn muốn đọc
-    kafka_consumer(kafka_topic, kafka_partition)
 
