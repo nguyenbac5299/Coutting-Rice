@@ -60,10 +60,68 @@ class UploadEvent:
 from kafka import KafkaConsumer
 from datetime import datetime
 # To consume latest messages and auto-commit offsets
-consumer = KafkaConsumer('stock_click',bootstrap_servers=['10.32.37.205:9092'])
+consumer = KafkaConsumer('stock_click',bootstrap_servers=[''])
 for message in consumer:
     print("consumer proccess message: ", datetime.now(), message.value.decode())
 
 
 
+from confluent_kafka import Consumer, KafkaError, TopicPartition
+from datetime import datetime
+import time
+
+def send_campaign(data):
+    # Thực hiện logic gửi chiến dịch tại đây
+    print("Sending campaign:", datetime.now(), data)
+
+def process_kafka_message(consumer, kafka_message):
+    try:
+        # Xử lý dữ liệu từ message.value
+        data = kafka_message.value().decode('utf-8')
+        print("Processing message:", datetime.now(), data)
+
+        # Gửi chiến dịch
+        send_campaign(data)
+
+        # Cập nhật trạng thái xử lý và offset
+        consumer.commit()
+
+    except Exception as e:
+        print("Error processing message:", datetime.now(), str(e))
+
+def kafka_consumer(topic, partition):
+    conf = {
+        'bootstrap.servers': '',
+        'group.id': 'your_consumer_group_id',
+        'auto.offset.reset': 'earliest'
+    }
+
+    consumer = Consumer(conf)
+    consumer.assign([TopicPartition(topic, partition)])
+
+    try:
+        while True:
+            msg = consumer.poll(1000)
+            if msg is None:
+                continue
+            if msg.error():
+                if msg.error().code() == KafkaError._PARTITION_EOF:
+                    continue
+                else:
+                    print("Error:", datetime.now(), msg.error())
+                    time.sleep(1)
+                    continue
+
+            # Xử lý message
+            process_kafka_message(consumer, msg)
+
+    except KeyboardInterrupt:
+        pass
+    finally:
+        consumer.close()
+
+if __name__ == '__main__':
+    kafka_topic = 'your_kafka_topic'
+    kafka_partition = 0  # Thay thế bằng partition bạn muốn đọc
+    kafka_consumer(kafka_topic, kafka_partition)
 
