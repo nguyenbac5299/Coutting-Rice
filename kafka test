@@ -111,21 +111,43 @@ data_writer_consumer_thread.join()
 
 
 
-Exception in thread mm_click:
-Traceback (most recent call last):
-  File "/usr/local/lib/python3.7/threading.py", line 926, in _bootstrap_inner
-    self.run()
-  File "/app/process_upload.py", line 12, in run
-    upload_event.upload_topic_test()
-  File "/app/upload_event_kafka_minio.py", line 114, in upload_topic_test
-    consumer_write_data= KafkaConsumer(bootstrap_servers= config.KAFKA_SERVER, group_id='write_data_group_'+ self.topic, auto_offset_reset='earliest', enable_auto_commit= True)
-  File "/usr/local/lib/python3.7/site-packages/kafka/consumer/group.py", line 356, in __init__
-    self._client = KafkaClient(metrics=self._metrics, **self.config)
-  File "/usr/local/lib/python3.7/site-packages/kafka/client_async.py", line 244, in __init__
-    self.config['api_version'] = self.check_version(timeout=check_timeout)
-  File "/usr/local/lib/python3.7/site-packages/kafka/client_async.py", line 927, in check_version
-    raise Errors.NoBrokersAvailable()
-kafka.errors.NoBrokersAvailable: NoBrokersAvailable
+from kafka import KafkaConsumer, TopicPartition
+import threading
+
+def consume_partition(consumer, partition):
+    for message in consumer:
+        print(f"Consumer in group {group_id} assigned to partition {message.partition()} received: {message.value.decode()}")
+
+def create_consumer_and_thread(bootstrap_servers, group_id, topic, partition):
+    consumer = KafkaConsumer(bootstrap_servers=bootstrap_servers, group_id=group_id)
+    topic_partition = [(topic, partition)]
+    consumer.assign(topic_partition)
+
+    thread = threading.Thread(target=consume_partition, args=(consumer, partition))
+    thread.start()
+    return consumer, thread
+
+def main():
+    bootstrap_servers = 'your_bootstrap_servers'
+    group_id = 'your_group_id'
+    topic = 'your_topic'
+    num_partitions = 8
+
+    # Create consumers for each partition in the group
+    consumers_and_threads = []
+    for partition in range(num_partitions):
+        consumer, thread = create_consumer_and_thread(bootstrap_servers, group_id, topic, partition)
+        consumers_and_threads.append((consumer, thread))
+
+    # Do some other work in the main thread if needed
+
+    # Wait for all threads to finish
+    for _, thread in consumers_and_threads:
+        thread.join()
+
+if __name__ == "__main__":
+    main()
+
 
 
 
