@@ -16,3 +16,49 @@ Response:
 {
 "result": "Success"
 }
+
+
+
+from locust import HttpUser, task
+
+class MyUser(HttpUser):
+    @task
+    def load_api(self):
+        headers = {
+            "Content-Type": "application/json"
+        }
+        payload = {
+            "events": [
+                {
+                    "key": "test",
+                    "count": 1,
+                    "segmentation": {
+                        "category": "category",
+                        "event_feature": "test",
+                        "tracking_id": "d5778243-3224-447e-9ba4-6f9e014e41e7",
+                        "acountId": "KH0001"
+                    },
+                    "timestamp": 1696211359244,
+                    "hour": 8,
+                    "dow": 1
+                }
+            ],
+            "app_key": "51cbd1f7fa73f06c1c19ee8bacac373680da4d24",
+            "device_id": "b8f14c09-5896-4553-8791-e68a3e33f87d",
+            "sdk_name": "javascript_native_web",
+            "sdk_version": "22.06.4",
+            "t": 1,
+            "timestamp": 1696211359245,
+            "hour": 8,
+            "dow": 1
+        }
+        response = self.client.get("/i", headers=headers, json=payload)
+        if response.status_code == 200:
+            print("GET request successful")
+        else:
+            print("GET request failed with status code:", response.status_code)
+
+if __name__ == "__main__":
+    import os
+    os.system("locust -f my_locust_file.py")
+
